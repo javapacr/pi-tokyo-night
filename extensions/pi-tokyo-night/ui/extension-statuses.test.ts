@@ -1,72 +1,89 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import {
-  formatExtensionStatusText,
-  renderExtensionStatusLines,
-} from "./extension-statuses";
+import { collectExtensionStatuses } from "./extension-statuses";
+import { resolveIcons } from "./icons";
+import { buildExtensionStatusRow } from "./status-bar";
 import { createTokyoNightPalette } from "./theme-palette";
 
-const darkPalette = createTokyoNightPalette({
+const palette = createTokyoNightPalette({
   name: "tokyo-night-dark",
   fg: (_color: string, text: string) => text,
 } as any);
-const lightPalette = createTokyoNightPalette({
-  name: "tokyo-night-light",
-  fg: (_color: string, text: string) => text,
-} as any);
-const DARK5 = "\x1b[38;2;115;122;162m";
-const DAY_DARK5 = "\x1b[38;2;104;112;154m";
-const stripAnsi = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
+const icons = resolveIcons("nerd");
+const ARROW = icons.transition;
+const bg = (rgb: string) => `\x1b[48;2;${rgb}m`;
+const fg = (rgb: string) => `\x1b[38;2;${rgb}m`;
+// The main status bar's segment pairs, in the order the row cycles them.
+const BAR_PAIRS = [
+  { bg: "45;27;105", fg: "200;200;255" }, // model / statusModel
+  { bg: "61;43;122", fg: "220;220;255" }, // thinking / statusThinking
+  { bg: "77;59;138", fg: "240;240;255" }, // path / statusPath
+  { bg: "93;75;154", fg: "255;255;255" }, // git / statusGit
+  { bg: "101;83;162", fg: "245;240;255" }, // quota / statusLimit
+  { bg: "109;91;170", fg: "255;255;200" }, // tokens / statusTokens
+];
+const plainText = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
 
-describe("formatExtensionStatusText", () => {
+describe("collectExtensionStatuses", () => {
   it("is empty without statuses", () => {
-    expect(formatExtensionStatusText(new Map())).toBe("");
-    expect(formatExtensionStatusText(undefined)).toBe("");
-    expect(formatExtensionStatusText(new Map([["blank", " \n\t"]]))).toBe("");
+    expect(collectExtensionStatuses(new Map())).toEqual([]);
+    expect(collectExtensionStatuses(undefined)).toEqual([]);
+    expect(collectExtensionStatuses(new Map([["blank", " \n\t\x1b[31m\x1b[0m"]]))).toEqual([]);
   });
 
-  it("sorts by key, sanitizes whitespace and joins with spaces", () => {
+  it("sorts by key and sanitizes whitespace", () => {
     const statuses = new Map([
       ["sandbox", "🔒 Sandbox:\t24 domains,\n20 write paths"],
       ["mcp", "  MCP:   1 server enabled  "],
       ["lsp", "LSP\r\nInactive"],
     ]);
 
-    expect(formatExtensionStatusText(statuses)).toBe(
-      "LSP Inactive MCP: 1 server enabled 🔒 Sandbox: 24 domains, 20 write paths",
-    );
+    expect(collectExtensionStatuses(statuses)).toEqual([
+      "LSP Inactive",
+      "MCP: 1 server enabled",
+      "🔒 Sandbox: 24 domains, 20 write paths",
+    ]);
   });
 
-  it("strips foreign ANSI, OSC hyperlinks and APC markers", () => {
+  it("strips all foreign SGR and control sequences", () => {
     const statuses = new Map([
-      ["cache", "\x1b[32mClaude\x1b[39m \x1b[1;38;2;1;2;3mcache\x1b[0m"],
-      ["link", "\x1b]8;;https://example.com\x07docs\x1b]8;;\x07 \x1b_marker\x1b\\ok"],
+      ["a", "\x1b[1;41;31mwarn\x1b[0m"],
+      ["b", "\x1b[38;2;1;2;3;48;2;4;5;6mtrue\x1b[49m \x1b[38:2::7:8:9mcolon\x1b[m"],
+      ["c", "\x1b]8;;https://example.com\x07docs\x1b]8;;\x07 \x1b_marker\x1b\\ok\x1b[2K\x1b[3G"],
     ]);
 
-    expect(formatExtensionStatusText(statuses)).toBe("Claude cache docs ok");
+    expect(collectExtensionStatuses(statuses)).toEqual(["warn", "true colon", "docs ok"]);
   });
 });
 
-describe("renderExtensionStatusLines", () => {
-  it("renders nothing for empty text", () => {
-    expect(renderExtensionStatusLines("", 80, darkPalette)).toEqual([]);
-    expect(renderExtensionStatusLines("MCP", 0, darkPalette)).toEqual([]);
+describe("buildExtensionStatusRow", () => {
+  it("renders nothing without statuses or width", () => {
+    expect(buildExtensionStatusRow([], 80, palette, icons)).toEqual([]);
+    expect(buildExtensionStatusRow(["MCP"], 0, palette, icons)).toEqual([]);
   });
 
-  it("colors the row with the Tokyo Night statusExtensions role per variant", () => {
-    expect(renderExtensionStatusLines("MCP: 1 server", 80, darkPalette)).toEqual([
-      `${DARK5}MCP: 1 server\x1b[39m`,
-    ]);
-    expect(renderExtensionStatusLines("MCP: 1 server", 80, lightPalette)[0])
-      .toContain(DAY_DARK5);
+  it("renders Powerline segments whose fg/bg pairs cycle the status bar's role pairs", () => {
+    const statuses = ["s0", "s1", "s2", "s3", "s4", "s5", "s6"];
+    const [row] = buildExtensionStatusRow(statuses, 120, palette, icons);
+
+    expect(plainText(row!)).toBe(`${statuses.map((status) => ` ${status} `).join(ARROW)}${ARROW}`);
+    statuses.forEach((status, index) => {
+      const pair = BAR_PAIRS[index % BAR_PAIRS.length]!;
+      expect(row).toContain(`${bg(pair.bg)}${fg(pair.fg)} ${status} `);
+      // Arrow join: next segment's background, previous segment's background as fg.
+      const next = BAR_PAIRS[(index + 1) % BAR_PAIRS.length]!;
+      const join = index === statuses.length - 1 ? "\x1b[49m" : bg(next.bg);
+      expect(row).toContain(`${join}${fg(pair.bg)}${ARROW}`);
+    });
   });
 
-  it("truncates to the width with a themed ellipsis", () => {
-    const lines = renderExtensionStatusLines(`${"x".repeat(50)} ${"y".repeat(50)}`, 20, darkPalette);
+  it("ellipsizes the last segment that fits and drops the rest", () => {
+    const statuses = ["MCP: 1 server", "🔒 Sandbox: 24 domains, 20 write paths", "zz dropped"];
+    const [row] = buildExtensionStatusRow(statuses, 40, palette, icons);
 
-    expect(lines).toHaveLength(1);
-    expect(visibleWidth(lines[0]!)).toBeLessThanOrEqual(20);
-    expect(stripAnsi(lines[0]!)).toBe(`${"x".repeat(17)}...`);
-    expect(lines[0]).toContain(`${DARK5}...`);
+    expect(visibleWidth(row!)).toBe(40);
+    expect(plainText(row!)).toBe(` MCP: 1 server ${ARROW} 🔒 Sandbox: 24 domai… ${ARROW}`);
+    // The ellipsis stays on the segment background: no reset inside the segment.
+    expect(row).toContain(`${bg(BAR_PAIRS[1]!.bg)}${fg(BAR_PAIRS[1]!.fg)} 🔒 Sandbox: 24 domai… `);
   });
 });

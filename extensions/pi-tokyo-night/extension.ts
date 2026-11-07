@@ -44,13 +44,15 @@ import {
   type NeonStudioThemeResult,
 } from "./ui/neon-studio-controller";
 import {
+  buildExtensionStatusRow,
   buildStatusLines,
   getSessionStats,
   invalidateSessionStats,
   type LiveSessionUsage,
 } from "./ui/status-bar";
 import { StatusRenderCache } from "./ui/status-render-cache";
-import { formatExtensionStatusText, renderExtensionStatusLines } from "./ui/extension-statuses";
+import { collectExtensionStatuses } from "./ui/extension-statuses";
+import { resolveIcons } from "./ui/icons";
 import { RefreshScheduler } from "./ui/refresh-scheduler";
 import { RenderRecoveryCoordinator } from "./ui/render-recovery";
 import {
@@ -970,7 +972,7 @@ export function registerTokyoNightExtension(
       const kimiUsage = session.kimiUsageStore.getSnapshot();
       // Statuses from ctx.ui.setStatus join the framed status body; only the
       // owned footer exposes them, and another footer renders its own.
-      const extensionStatuses = formatExtensionStatusText(
+      const extensionStatuses = collectExtensionStatuses(
         session.footerData?.getExtensionStatuses?.(),
       );
 
@@ -985,7 +987,7 @@ export function registerTokyoNightExtension(
         codexUsage,
         kimiUsage,
         liveUsageRevision: session.liveUsageRevision,
-        extensionStatuses,
+        extensionStatuses: extensionStatuses.join("\n"),
       }, () => {
         void updateBranch(session);
         const lines = buildStatusLines(
@@ -1003,10 +1005,11 @@ export function registerTokyoNightExtension(
           session.outputTps ?? session.outputTpsLast,
         );
         const palette = theme ? createTokyoNightPalette(theme) : undefined;
-        lines.push(...renderExtensionStatusLines(
+        lines.push(...buildExtensionStatusRow(
           extensionStatuses,
           statusWidth,
           palette ?? DEFAULT_TOKYO_NIGHT_PALETTE,
+          resolveIcons(config.iconMode),
         ));
         return buildStatusWidgetLines(
           outputWidth,

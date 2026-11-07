@@ -1930,7 +1930,7 @@ describe("public layout and lifecycle contract", () => {
     return { statuses, footer };
   };
 
-  it("renders setStatus entries inside the status frame, themed, above the bottom edge", async () => {
+  it("renders setStatus entries as a Powerline segment row inside the status frame, above the bottom edge", async () => {
     const fixture = makeFixture();
     await fixture.emit("session_start", { reason: "startup" }, fixture.ctx);
     const tui = { requestRender: vi.fn() };
@@ -1947,13 +1947,15 @@ describe("public layout and lifecycle contract", () => {
     expect(after.slice(0, -2)).toEqual(before.slice(0, -1));
     expect(plainText(after.at(-1)!)).toMatch(/^╰─+╯$/);
     const row = after.at(-2)!;
-    expect(plainText(row)).toMatch(/^│MCP: 1 server enabled 🔒 Sandbox: 24 domains, 20 write paths +│$/);
-    expect(row).toContain("\x1b[38;2;115;122;162mMCP: 1 server enabled");
+    expect(plainText(row)).toMatch(/^│ MCP: 1 server enabled \uE0B0 🔒 Sandbox: 24 domains, 20 write paths \uE0B0 +│$/);
+    // Segments use the status bar's model and thinking bg/fg pairs; foreign SGR is stripped.
+    expect(row).toContain("\x1b[48;2;45;27;105m\x1b[38;2;200;200;255m MCP: 1 server enabled ");
+    expect(row).toContain("\x1b[48;2;61;43;122m\x1b[38;2;220;220;255m 🔒 Sandbox");
     expect(row).not.toContain("\x1b[32m");
     expect(footer.render(80)).toEqual([]);
 
     statuses.set("sandbox", "x".repeat(100));
-    expect(plainText(status.render(80).at(-2)!)).toMatch(/^│MCP: 1 server enabled x+\.\.\.│$/);
+    expect(plainText(status.render(80).at(-2)!)).toMatch(/^│ MCP: 1 server enabled \uE0B0 x+… \uE0B0│$/);
     statuses.clear();
     expect(status.render(80)).toEqual(before);
     await fixture.emit("session_shutdown", { reason: "quit" }, fixture.ctx);
@@ -1974,7 +1976,7 @@ describe("public layout and lifecycle contract", () => {
     const after = status.render(40);
 
     expect(after).toHaveLength(before.length + 1);
-    expect(plainText(after.at(-1)!)).toBe("MCP: 1 server enabled".padEnd(40));
+    expect(plainText(after.at(-1)!)).toBe(" MCP: 1 server enabled \uE0B0".padEnd(40));
     await fixture.emit("session_shutdown", { reason: "quit" }, fixture.ctx);
   });
 
@@ -2003,7 +2005,7 @@ describe("public layout and lifecycle contract", () => {
 
     // One rain row gives way to the status row, inside the closing frame edge.
     expect(withStatuses).toHaveLength(withoutStatuses.length);
-    expect(plainText(withStatuses.at(-2)!)).toContain("│MCP: 1 server enabled");
+    expect(plainText(withStatuses.at(-2)!)).toContain("│ MCP: 1 server enabled \uE0B0");
     expect(plainText(withStatuses.at(-1)!)).toMatch(/^╰─+╯$/);
     // Leave space for the host widget separator, working indicator and history.
     expect(withStatuses.length + 4).toBeLessThanOrEqual(16);
